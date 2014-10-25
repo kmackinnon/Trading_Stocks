@@ -32,7 +32,7 @@ def remove_stock(stock):
 
 def print_watched_stocks():
     pp = pprint.PrettyPrinter()
-    pp.format = format_print(object, context, maxlevels, level)
+    pp.format = format_print
 
     for row in c.execute("SELECT * FROM stocks ORDER BY true_price"):
         pp.pprint(row)
