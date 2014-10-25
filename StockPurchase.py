@@ -1,73 +1,75 @@
 # usr/bin/python27
 
-"""
-I often find myself wanting a quick tool to determine whether I should invest in a particular stock.
-The purpose of this application is to keep track of stocks in which you're interested.
+import pprint
+import time
+import threading
+import sqlite3
+import ystockquote
 
-To begin, the user enters a target price for a given stock.
-If the market value goes below that price, the user may decide to purchase that stock.
-There is also the added test of simple moving averages.
-The idea is that if the more recent MA crosses the longer term MA from below, 
-the stock should continue upwards (at least over the short term).
-"""
+conn = sqlite3.connect('price.db')
+c = conn.cursor()
 
-import csv
-import math
-import ystockquote #retrieve stock quote data from Yahoo Finance
+# Create table
+c.execute('''CREATE TABLE IF NOT EXISTS stocks (ticker, target_price, true_price)''')
 
-ERROR = 0.01 # 1% error
+def format_print(object, context, maxlevels, level):
+    typ = pprint._type(object)
+    if typ is unicode:
+        object = str(object)
+    return pprint._safe_repr(object, context, maxlevels, level)
 
-r = csv.reader(open('targets.csv', 'r'))
-#w = csv.writer(open('targets.csv', 'a'))
+def add_stock(stock, target):
+    price = ystockquote.get_price(stock)
+    c.execute("INSERT INTO stocks VALUES (?,?,?)", (stock, target, price,))
+    conn.commit() # Save (commit) the changes
+    print "\nStock added to database"
 
-# user adds stocks to the csv file
-def addStock(stock, price):
-    with open ('targets.csv', 'a') as w:
-        writer = csv.writer(w)
-        writer.writerow([stock] + [price])
-    
-# If the user wishes to edit the csv file, he may do so here    
-def deleteStock(stock):
-    pass
+def validate_stock(stock):
+    return ystockquote.get_price(stock) != "0.00"
 
-# buy if the market price is <= the target price
-def isBuy(priceEntered, priceMarket):
-    return priceMarket <= priceEntered
+def remove_stock(stock):
+    c.execute('''DELETE FROM stocks WHERE stock = ?''',stock)
 
-# a buy signal is triggered when the 50-day sma crosses the 200-day sma from below
-def isCrossOver(sma50, sma200, quote):
-    difference = sma50 - sma200
-    return math.fabs(difference) < ERROR * quote
+def print_watched_stocks():
+    pp = pprint.PrettyPrinter()
+    pp.format = format_print(object, context, maxlevels, level)
+
+    for row in c.execute("SELECT * FROM stocks ORDER BY true_price"):
+        pp.pprint(row)
                      
 def main():
-    while True:
-        enterMore = raw_input("\nAdd more stocks to watchlist? (y/n) ")[:1].lower()
-        if enterMore == 'y':
+    print "\nUsage: close the program by typing q"
+    cmd = raw_input("\nAdd more stocks to watchlist? (y/n) ")[:1].lower()
+
+    while cmd != 'q':
+        
+        if cmd == 'y':
             stock = raw_input("Enter stock: ")
-            price = raw_input("Enter price: ")
-            addStock(stock, price)
-        elif enterMore == 'n':
+            target = raw_input("Enter price: ")
+
+            if validate_stock(stock):
+                add_stock(stock, target)
+            else:
+                print "Invalid stock. Please enter a valid ticker"
+
+        elif cmd == 'n':
+            cmd = raw_input("\nRemove any stocks from watchlist? (y/n) ")[:1].lower()
             
-            for line in r:
-                try:
-                    quote = float(ystockquote.get_price(line[0]))
-                    sma50 = float(ystockquote.get_50day_moving_avg(line[0]))
-                    sma200 = float(ystockquote.get_200day_moving_avg(line[0]))
-                except ValueError:
-                    print 'EOF'
-                    break
-                
-                if isBuy(float(line[1]), quote): # if target less than market price, then purchase
-                    opportunity = 'Current price under target. BUY'
-                elif isCrossOver(quote, sma50, sma200): # if crossover from below, then purchase
-                    opportunity = 'Possible crossover. BUY'
-                else:
-                    opportunity = ''
-                print ', '.join(line), quote, opportunity
-            
-            break
+            if cmd == 'y':
+                stock = raw_input("Enter stock: ")
+                remove_stock(stock)
+            elif cmd == 'n':
+                print_watched_stocks()
+                break
+            else:
+                continue;
+
         else:
+            print_watched_stocks()
+            conn.close() # Close the connection
             break
+
+        cmd = raw_input("\nAdd more stocks to watchlist? (y/n) ")[:1].lower()
 
 if __name__ == '__main__':
     main()
